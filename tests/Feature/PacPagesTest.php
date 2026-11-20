@@ -7,6 +7,7 @@ use App\Models\Instrument;
 use App\Models\Investment;
 use App\Models\Plan;
 use App\Models\User;
+use Filament\Actions\Testing\TestAction;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
@@ -43,8 +44,8 @@ it('renders full historical snapshots without writing and hides another users pl
         ->get(PlanDetail::getUrl(['plan' => $plan->getKey()]))
         ->assertOk()
         ->assertSee('Andamento per calendario')
-        ->assertSee('Storico completo')
-        ->assertSee('Fotografia');
+        ->assertSee('Storico delle rilevazioni')
+        ->assertSee('Prezzo unitario');
 
     $this->assertDatabaseCount('investments', 1);
 
@@ -150,12 +151,38 @@ it('uses a closed PAC historical price and marks a future PAC as not started', f
     $this->actingAs($user)
         ->get(PlanDetail::getUrl(['plan' => $closedPlan->getKey()]))
         ->assertOk()
-        ->assertSee('€ 100')
-        ->assertSee('€ 800.00');
+        ->assertSee('100 €')
+        ->assertSee('800,00 €');
 
     $this->actingAs($user)
         ->get(PlanDetail::getUrl(['plan' => $futurePlan->getKey()]))
         ->assertOk()
         ->assertSee('Il piano non è ancora iniziato')
-        ->assertSee('—');
+        ->assertDontSee('Obiettivo del mese');
+});
+
+it('starts a new measurement without a stale price and can reuse a quote with its original date', function () {
+    $this->travelTo('2026-11-12 12:00:00');
+    $user = User::factory()->create();
+    $instrument = Instrument::factory()->create([
+        'latest_price' => '129.760000',
+        'latest_price_date' => '2026-10-15',
+    ]);
+    $plan = Plan::factory()->for($user)->for($instrument)->create([
+        'start_period' => '2026-09-01',
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(PlanDetail::class, ['plan' => $plan->id])
+        ->mountAction('previewInvestment')
+        ->assertSchemaStateSet(['unit_price' => null, 'price_date' => '2026-11-12', 'period' => '2026-11'])
+        ->callAction(TestAction::make('useLatestQuote')->schemaComponent('unit_price', schema: 'mountedActionSchema0'))
+        ->assertSchemaStateSet(['unit_price' => '129.76', 'price_date' => '2026-10-15', 'period' => '2026-11'])
+        ->callMountedAction()
+        ->assertHasNoErrors()
+        ->assertSet('investmentInput.price_date', '2026-10-15')
+        ->call('clearInvestmentPreview')
+        ->assertSet('investmentSnapshot', [])
+        ->assertSet('investmentFingerprint', null);
+    $this->assertDatabaseCount('investments', 0);
 });

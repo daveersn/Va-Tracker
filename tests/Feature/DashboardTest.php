@@ -17,7 +17,7 @@ it('opens the personal dashboard with a first plan action', function () {
     $this->get(Dashboard::getUrl())
         ->assertOk()
         ->assertSee('Il tuo primo PAC parte da qui')
-        ->assertSee('Liquidità virtuale');
+        ->assertSee('Crea un PAC');
 });
 
 it('values active holdings at the shared quote and keeps virtual liquidity separate', function () {
@@ -78,5 +78,6 @@ it('does not request a current month measurement before the opening balance is c
     Livewire::test(Dashboard::class)
         ->assertSee('Periodo già coperto')
         ->assertDontSee('Da rilevare')
-        ->assertSee('8250,00');
+        ->assertDontSee('Registra rilevazione')
+        ->assertSee('8.250,00');
 });

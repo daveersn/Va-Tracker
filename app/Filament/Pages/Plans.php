@@ -67,25 +67,12 @@ class Plans extends Page
     protected function getViewData(): array
     {
         $plans = Plan::query()->where('user_id', Auth::id())
-            ->with(['instrument', 'latestInvestment', 'previousPlan', 'successor'])
+            ->with(['instrument', 'previousPlan', 'successor'])
             ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")
             ->orderByDesc('updated_at')->orderByDesc('id')->get();
-        $summaries = [];
-
-        foreach ($plans as $plan) {
-            $quantity = $plan->quantity();
-            $last = $plan->latestInvestment;
-            $price = $plan->status === 'closed' ? $last?->getRawOriginal('unit_price') : $plan->instrument->getRawOriginal('latest_price');
-            $summaries[$plan->id] = [
-                'value' => $quantity === 0 ? 0 : ($price === null ? null : Decimal::value($quantity, (int) $price)),
-                'editable' => $plan->configurationEditable(),
-                'deletable' => $plan->deletable(),
-            ];
-        }
 
         return [
             'plans' => $plans,
-            'summaries' => $summaries,
             'previewInstrument' => $this->planPreview === [] ? null : Instrument::query()->find($this->planPreview['instrument_id']),
         ];
     }
@@ -93,11 +80,6 @@ class Plans extends Page
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('createInstrument')->label('Nuovo titolo')->icon(Heroicon::Plus)->color('gray')
-                ->schema(Instruments::instrumentFields())->action(function (array $data): void {
-                    SaveInstrument::run(Auth::user(), $data);
-                    Notification::make()->title('Titolo aggiunto')->success()->send();
-                }),
             Action::make('openPlan')->label('Nuovo PAC')->icon(Heroicon::Plus)
                 ->modalHeading('Apri un PAC')->modalSubmitActionLabel('Mostra riepilogo')
                 ->fillForm(function (): array {

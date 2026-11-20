@@ -17,8 +17,11 @@ class Dashboard extends BaseDashboard
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('newPlan')->label('Nuovo PAC')->url(fn (): string => Plans::getUrl(['create' => 1])),
-            Action::make('instruments')->label('Titoli e quotazioni')->color('gray')->url(fn (): string => Instruments::getUrl()),
+            Action::make('newPlan')
+                ->label('Nuovo PAC')
+                ->color('gray')
+                ->visible(fn (): bool => Plan::query()->where('user_id', Auth::id())->where('status', 'active')->exists())
+                ->url(fn (): string => Plans::getUrl(['create' => 1])),
         ];
     }
 
@@ -61,7 +64,7 @@ class Dashboard extends BaseDashboard
                 'target' => $period >= $plan->start_period->format('Y-m-d')
                     && ($plan->opening_period === null || $period >= $plan->opening_period->format('Y-m-d'))
                         ? $plan->targetFor($period) : null,
-                'last' => $last,
+                'last' => $plan->latestInvestment?->period,
                 'eligible' => $eligible,
                 'status' => $status,
             ];
@@ -73,6 +76,8 @@ class Dashboard extends BaseDashboard
                 $value = Decimal::add($value, $valuation);
             }
         }
+
+        usort($rows, fn (array $first, array $second): int => $second['eligible'] <=> $first['eligible']);
 
         return [
             'rows' => $rows,

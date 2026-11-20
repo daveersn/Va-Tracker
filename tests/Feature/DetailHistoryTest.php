@@ -36,7 +36,9 @@ it('shows the current target after the current month has already been recorded',
 
     Livewire::actingAs($user)->test(PlanDetail::class, ['plan' => $plan->id])
         ->assertViewHas('calendarTarget', 75000)
-        ->assertViewHas('targetForPeriod', '2026-11-01');
+        ->assertSee('Rilevazione di novembre 2026')
+        ->assertSee('Rilevazione salvata')
+        ->assertSee('Obiettivo del mese');
 });
 
 it('confirms deletion of the last monthly snapshot and restores the opening position', function () {

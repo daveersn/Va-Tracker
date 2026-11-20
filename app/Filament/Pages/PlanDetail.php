@@ -11,10 +11,12 @@ use App\Models\Investment;
 use App\Models\Plan;
 use App\Support\Decimal;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
@@ -25,6 +27,8 @@ use Livewire\Attributes\Locked;
 class PlanDetail extends Page
 {
     protected string $view = 'filament.pages.plan-detail';
+
+    protected static ?string $title = 'Dettaglio PAC';
 
     protected static ?string $slug = 'pac/{plan}';
 
@@ -118,7 +122,6 @@ class PlanDetail extends Page
             'displayPrice' => $displayPrice,
             'displayPriceDate' => $displayPriceDate,
             'portfolioValue' => $portfolioValue,
-            'targetForPeriod' => $targetForPeriod,
             'calendarTarget' => $started ? $plan->targetFor($targetForPeriod) : null,
         ];
     }
@@ -170,25 +173,23 @@ class PlanDetail extends Page
         return $points;
     }
 
-    /** @return array<Action> */
+    /** @return array<Action|ActionGroup> */
     protected function getHeaderActions(): array
     {
         $plan = $this->plan();
         $actions = [
             Action::make('previewInvestment')
-                ->label('Registra mese')
+                ->label('Registra rilevazione')
                 ->icon(Heroicon::Plus)
                 ->color('primary')
                 ->visible(fn (): bool => $plan->status === 'active')
-                ->modalHeading('Anteprima della rilevazione')
-                ->modalDescription('Inserisci i dati del mese. L’anteprima non salva una rilevazione e non cambia i saldi.')
+                ->modalHeading('Registra rilevazione')
                 ->modalSubmitActionLabel('Mostra anteprima')
                 ->fillForm(fn (): array => [
-                    'period' => substr($plan->firstRecordablePeriod(), 0, 7),
-                    'unit_price' => $plan->instrument->latest_price,
+                    'period' => max(now()->format('Y-m'), substr($plan->firstRecordablePeriod(), 0, 7)),
                     'price_date' => now()->toDateString(),
                 ])
-                ->schema($this->investmentSchema())
+                ->schema($this->investmentSchema($plan))
                 ->action(fn (array $data) => $this->previewNewInvestment($data)),
         ];
 
@@ -238,11 +239,11 @@ class PlanDetail extends Page
 
         if ($plan->status === 'active' && $plan->successor === null && $this->firstCompatibleSuccessorPeriod($plan) <= now()->format('Y-m')) {
             $actions[] = Action::make('previewSuccessor')
-                ->label('Crea PAC successore')
+                ->label('Cambia incremento mensile')
                 ->icon(Heroicon::ArrowPathRoundedSquare)
                 ->color('gray')
-                ->modalHeading('Imposta il PAC successore')
-                ->modalDescription('Il riepilogo non modifica il piano corrente. La decorrenza deve essere successiva e non futura.')
+                ->modalHeading('Cambia incremento mensile')
+                ->modalDescription('Alla conferma, il piano corrente si chiude e il nuovo PAC prosegue con gli stessi saldi.')
                 ->modalSubmitActionLabel('Mostra riepilogo')
                 ->fillForm(fn (): array => [
                     'monthly_increment' => Decimal::formatMoney((int) $plan->getRawOriginal('monthly_increment')),
@@ -255,7 +256,11 @@ class PlanDetail extends Page
                 ->action(fn (array $data) => $this->previewSuccessor($data));
         }
 
-        return $actions;
+        $record = array_shift($actions);
+
+        return $actions === []
+            ? [$record]
+            : [$record, ActionGroup::make($actions)->label('Gestisci PAC')->button()->color('gray')];
     }
 
     public function saveInvestmentAction(): Action
@@ -420,13 +425,26 @@ class PlanDetail extends Page
     }
 
     /** @return array<TextInput|DatePicker> */
-    private function investmentSchema(): array
+    private function investmentSchema(Plan $plan): array
     {
+        $price = $plan->instrument->latest_price;
+        $priceDate = $plan->instrument->latest_price_date;
+
         return [
-            TextInput::make('period')->label('Periodo')->required()->type('month')->default(now()->format('Y-m')),
-            Instruments::decimalField('unit_price', 'Prezzo unitario (€)', 6)->required(),
+            TextInput::make('period')->label('Mese della rilevazione')->required()->type('month'),
+            Instruments::decimalField('unit_price', 'Prezzo unitario (€)', 6)
+                ->required()
+                ->afterContent($price !== null && $priceDate !== null
+                    ? Action::make('useLatestQuote')
+                        ->label('Usa ultima quotazione')
+                        ->link()
+                        ->action(function (Set $schemaSet) use ($price, $priceDate): void {
+                            $schemaSet('unit_price', $price);
+                            $schemaSet('price_date', $priceDate->toDateString());
+                        })
+                    : null),
             DatePicker::make('price_date')->label('Data del prezzo')->required()->native(false)->default(now()->toDateString()),
-            TextInput::make('purchased_quantity')->label('Quote effettive (facoltativo)')->integer()->minValue(0)->helperText('Se vuoto, l’anteprima propone le quote calcolate dal VA.'),
+            TextInput::make('purchased_quantity')->label('Quote acquistate (facoltativo)')->integer()->minValue(0)->helperText('Lascia vuoto per vedere la quantità proposta. Inserisci 0 se non hai acquistato quote.'),
         ];
     }
 
@@ -465,7 +483,7 @@ class PlanDetail extends Page
         $this->previewInvestmentData($this->investmentInput, $this->editingInvestment());
     }
 
-    private function clearInvestmentPreview(): void
+    public function clearInvestmentPreview(): void
     {
         $this->investmentInput = [];
         $this->investmentSnapshot = [];

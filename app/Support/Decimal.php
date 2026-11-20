@@ -28,6 +28,13 @@ final class Decimal
         return self::format($cents, 100, 2, false);
     }
 
+    public static function formatEuro(int $cents): string
+    {
+        [$whole, $fraction] = explode('.', self::formatMoney($cents));
+
+        return preg_replace('/\B(?=(\d{3})+(?!\d))/', '.', $whole).','.$fraction.' €';
+    }
+
     public static function formatPrice(int $micros): string
     {
         return self::format($micros, 1_000_000, 6, true);
